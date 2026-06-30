@@ -1,0 +1,25 @@
+# yt-dlp binaries (auto-downloaded by ytj.ps1)
+yt-dlp.exe
+yt-dlp_macos
+yt-dlp
+
+# ytj local sync archive
+ytj_archive.txt
+
+# Media files downloaded via ytj
+*.mp4
+*.mp3
+*.mkv
+*.webm
+*.m4a
+*.part
+*.ytdl
+
+# Ignore all directories (which are uploader names) except dot directories (like .git)
+# This will prevent accidentally committing downloaded channels
+*/
+!.*
+
+# We explicitly need to ensure we can track our files if they were ignored by the above rule,
+# but the above rule only ignores directories.
+downloads/
