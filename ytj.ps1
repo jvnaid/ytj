@@ -1,4 +1,8 @@
 param(
+    [switch]$v,
+    [switch]$VerboseLog,
+    [switch]$d,
+    [switch]$DebugLog,
     [Parameter(ValueFromRemainingArguments = $true)]
     [string[]]$ArgsList
 )
@@ -12,12 +16,39 @@ $Subs = $false
 $Thumb = $false
 $Playlist = $false
 $Sync = $false
+$VerboseMode = $v.IsPresent -or $VerboseLog.IsPresent
+$DebugMode = $d.IsPresent -or $DebugLog.IsPresent
+if ($DebugMode) { $VerboseMode = $true }
 $OtherArgs = @()
+if ($DebugMode) { $OtherArgs += "-v" }
+
+function Write-Panel {
+    param([string]$Title, [string[]]$Lines, [ConsoleColor]$Color = 'Cyan')
+    Write-Host ""
+    Write-Host " $Title " -ForegroundColor $Color
+    Write-Host "------------------------------------------------------------" -ForegroundColor $Color
+    foreach ($line in $Lines) {
+        Write-Host "  $line" -ForegroundColor White
+    }
+    Write-Host "------------------------------------------------------------" -ForegroundColor $Color
+    Write-Host ""
+}
+
+function Write-Step {
+    param([string]$Type, [string]$Message)
+    if ($Type -eq 'info') { Write-Host " -> $Message" -ForegroundColor Cyan }
+    elseif ($Type -eq 'wait') { Write-Host " .. $Message" -ForegroundColor Yellow }
+    elseif ($Type -eq 'success') { Write-Host " OK $Message" -ForegroundColor Green }
+    elseif ($Type -eq 'error') { Write-Host " !! $Message" -ForegroundColor Red }
+    else { Write-Host "    $Message" }
+}
 
 foreach ($arg in $ArgsList) {
     if ($arg -eq "--audio-chapters") { $AudioChapters = $true }
     elseif ($arg -eq "--chapters") { $Chapters = $true }
     elseif ($arg -in @("-a", "--audio")) { $AudioOnly = $true }
+    elseif ($arg -eq "--verbose") { $VerboseMode = $true }
+    elseif ($arg -eq "--debug") { $DebugMode = $true; $VerboseMode = $true; $OtherArgs += "-v" }
     elseif ($arg -eq "--no-sponsors") { $NoSponsors = $true }
     elseif ($arg -eq "--subs") { $Subs = $true }
     elseif ($arg -eq "--thumb") { $Thumb = $true }
@@ -29,23 +60,25 @@ foreach ($arg in $ArgsList) {
 }
 
 if (-not $Url) {
-    Write-Host "Usage: ytj <link> [options]" -ForegroundColor Cyan
-    Write-Host ""
-    Write-Host "Core commands:"
-    Write-Host "  <link>             Download highest quality video + audio (mp4) into Uploader directory"
-    Write-Host "  --audio-chapters   Download audio only (mp3) and split by chapters"
-    Write-Host "  --chapters         Download video (mp4) and split by chapters"
-    Write-Host ""
-    Write-Host "Quality of life options:"
-    Write-Host "  -a, --audio        Download audio only (mp3)"
-    Write-Host "  --no-sponsors      Automatically remove sponsor segments"
-    Write-Host "  --subs             Download and embed English subtitles"
-    Write-Host "  --thumb            Download and embed high-res thumbnail"
-    Write-Host "  --playlist         Allow downloading entire playlist (default: disabled)"
-    Write-Host "  --sync             Seamlessly download a channel, recording finished videos"
-    Write-Host "                     to ytj_archive.txt to skip them on future runs."
-    Write-Host ""
-    Write-Host "Any other yt-dlp arguments will be passed through directly."
+    $helpLines = @(
+        "USAGE: ytj <link> [options]",
+        "",
+        "CORE COMMANDS",
+        "  <link>             [MP4] Download highest quality",
+        "  --audio-chapters   [MP3] Download audio only and split by chapters",
+        "  --chapters         [MP4] Download video and split by chapters",
+        "",
+        "QUALITY OF LIFE EXTRAS",
+        "  -a, --audio        [MP3] Download audio only",
+        "  -v, --verbose      [LOG] Show standard yt-dlp output (disable quiet mode)",
+        "  -d, --debug        [LOG] Show extreme yt-dlp debug output",
+        "  --no-sponsors      [ON]  Skip sponsor segments automatically",
+        "  --subs             [CC]  Embed English subtitles",
+        "  --thumb            [IMG] Embed high-res thumbnail",
+        "  --playlist         [PL]  Allow downloading entire playlist",
+        "  --sync             [SYNC] Sync a channel (skips previously downloaded)"
+    )
+    Write-Panel -Title "ytj : The Zero-Config yt-dlp Wrapper" -Lines $helpLines -Color Cyan
     exit 1
 }
 
@@ -96,11 +129,39 @@ if ($Thumb) {
     $ytDlpArgs += @("--write-thumbnail", "--embed-thumbnail")
 }
 
+if (-not $VerboseMode) {
+    # Silence yt-dlp warnings but keep native informational logs (like 'already downloaded')
+    $ytDlpArgs += @("--no-warnings")
+}
+$ytDlpArgs += @("--progress", "--console-title")
+
 $ytDlpArgs += $OtherArgs
 $ytDlpArgs += $Url
 
-$commandStr = "yt-dlp " + ($ytDlpArgs | ForEach-Object { if ($_ -match "\s") { "`"$_`"" } else { $_ } }) -join " "
-Write-Host "Running: $commandStr" -ForegroundColor Green
+
+$modeStr = "Video + Audio (MP4)"
+if ($AudioOnly -or $AudioChapters) { $modeStr = "Audio Only (MP3)" }
+if ($Chapters) { $modeStr += " [Chapter Split]" }
+
+$extrasStr = @()
+if ($NoSponsors) { $extrasStr += "SponsorBlock" }
+if ($Subs) { $extrasStr += "Subtitles" }
+if ($Thumb) { $extrasStr += "Thumbnail" }
+if ($Playlist) { $extrasStr += "Playlist/Sync" }
+
+$execLines = @(
+    "Target:  $Url",
+    "Mode:    $modeStr"
+)
+
+if ($DebugMode) { $execLines += "Logging: Debug" }
+elseif ($VerboseMode) { $execLines += "Logging: Verbose" }
+
+$optionsText = if ($extrasStr.Count -gt 0) { $extrasStr -join ", " } else { "None" }
+$execLines += "Options: $optionsText"
+$execLines += "Status:  Initializing..."
+
+Write-Panel -Title "Executing yt-dlp" -Lines $execLines -Color Magenta
 
 $os = "windows"
 $binaryName = "yt-dlp.exe"
@@ -118,7 +179,8 @@ $exePath = Join-Path -Path $PSScriptRoot -ChildPath $binaryName
 if (-not (Test-Path $exePath)) {
     $globalCmd = Get-Command "yt-dlp" -ErrorAction SilentlyContinue
     if (-not $globalCmd) {
-        Write-Host "yt-dlp not found. Downloading the latest version for $os..." -ForegroundColor Yellow
+        Write-Step -Type "info" -Message "yt-dlp not found."
+        Write-Step -Type "wait" -Message "Downloading the latest version for $os..."
         $downloadUrl = "https://github.com/yt-dlp/yt-dlp/releases/latest/download/$binaryName"
         try {
             [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
@@ -126,9 +188,9 @@ if (-not (Test-Path $exePath)) {
             if ($os -ne "windows") {
                 & chmod +x $exePath
             }
-            Write-Host "yt-dlp downloaded successfully!" -ForegroundColor Green
+            Write-Step -Type "success" -Message "yt-dlp downloaded successfully!"
         } catch {
-            Write-Host "Failed to download yt-dlp. Please install it manually from https://github.com/yt-dlp/yt-dlp/releases" -ForegroundColor Red
+            Write-Step -Type "error" -Message "Failed to download yt-dlp. Please install it manually from https://github.com/yt-dlp/yt-dlp/releases"
             exit 1
         }
     } else {
@@ -136,7 +198,5 @@ if (-not (Test-Path $exePath)) {
     }
 }
 
-$proc = Start-Process $exePath -ArgumentList $ytDlpArgs -NoNewWindow -Wait -PassThru
-if ($proc) {
-    exit $proc.ExitCode
-}
+& $exePath $ytDlpArgs
+exit $LASTEXITCODE

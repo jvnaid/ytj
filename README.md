@@ -31,8 +31,11 @@ ytj -U
 
 **Download highest quality video (MP4)**
 ```bash
-ytj <link>
+ytj "https://youtube.com/watch?v=..."
 ```
+
+> [!WARNING]
+> If your URL contains an ampersand (`&`), such as `&t=10s` or `&pp=...`, you **must** wrap the entire URL in quotes. Otherwise, Windows Command Prompt and PowerShell will treat the `&` as a command separator and throw errors like `'t' is not recognized as an internal or external command`.
 
 **Download and split video by chapters (MP4)**
 ```bash
@@ -51,6 +54,8 @@ You can mix and match these flags with any command:
 | Flag | Description |
 | :--- | :--- |
 | `-a` or `--audio` | Download the highest quality audio (MP3 only) |
+| `-v` or `--verbose` | Disables quiet mode and shows standard `yt-dlp` output (no spam) |
+| `-d` or `--debug` | Enables extreme `yt-dlp` debugging logs (network traces, config hashes) |
 | `--no-sponsors` | Integrates SponsorBlock to automatically skip ad/sponsor segments |
 | `--subs` | Automatically embeds English subtitles if available |
 | `--thumb` | Automatically embeds the high-resolution YouTube thumbnail |
