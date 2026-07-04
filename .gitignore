@@ -23,3 +23,7 @@ ytj_archive.txt
 # We explicitly need to ensure we can track our files if they were ignored by the above rule,
 # but the above rule only ignores directories.
 downloads/
+!docs/
+
+# Temporary states
+.ytj_status
