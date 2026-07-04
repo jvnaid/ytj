@@ -166,7 +166,6 @@ elseif ($VerboseMode) { $execLines += "Logging: Verbose" }
 
 $optionsText = if ($extrasStr.Count -gt 0) { $extrasStr -join ", " } else { "None" }
 $execLines += "Options: $optionsText"
-$execLines += "Status:  Initializing..."
 
 Write-Panel -Title "Executing yt-dlp" -Lines $execLines -Color Magenta
 
@@ -213,6 +212,10 @@ if ($UiMode) {
         Write-Host ""
         Write-Step -Type "info" -Message "Mock Single File UI Started"
         Write-Host ""
+        
+        Write-Host " [Video] Never Gonna Give You Up - Rick Astley [3:32]" -ForegroundColor Cyan
+        Write-Host " [Quality] Quality: 1080p60 (mp4) | Views: 1.4B" -ForegroundColor DarkGray
+        
         for ($i = 0; $i -le 100; $i += 5) {
             $barLength = 25
             $filled = [math]::Floor(($i / 100) * $barLength)
@@ -228,11 +231,13 @@ if ($UiMode) {
             $speed = "3.2MiB/s"
             $eta = "00:0" + (10 - [math]::Floor($i/10))
             if ($eta -eq "00:010") { $eta = "00:10" }
-            $text = "`r   Downloading [$bar] $i% | 52.7MiB | $speed | ETA: $eta   "
-            Write-Host -NoNewline $text
+            $msg = "`r" + '   Downloading [' + $bar + '] ' + $i + '% | 52.7MiB | ' + $speed + ' | ETA: ' + $eta + '   '
+            Write-Host -NoNewline $msg
             Start-Sleep -Milliseconds 100
         }
         Write-Host "`n"
+        Write-Host " [Done] Saved to: downloads/Rick Astley/Never Gonna Give You Up.mp4" -ForegroundColor DarkGray
+        Write-Host ""
         Write-Step -Type "success" -Message "Task finished (download complete)."
         exit 0
     }
@@ -240,7 +245,11 @@ if ($UiMode) {
         Write-Host ""
         Write-Step -Type "info" -Message "Playlist Sync Started (3 items)"
         Write-Host "------------------------------------------------------------"
-        $items = @("DIGITAL DOPAMINE (jungle dnb)", "lostmemory.mp3", "intelligent liquid dnb mix")
+        $items = @(
+            "Never Gonna Give You Up [3:32] (Rick Astley)", 
+            "Together Forever [3:24] (Rick Astley)", 
+            "Whenever You Need Somebody [3:53] (Rick Astley)"
+        )
         $states = @(0, 0, 0)
         $progress = @(0, 0, 0)
 
@@ -289,7 +298,14 @@ if ($UiMode) {
 # NATIVE STREAM PASSTHROUGH OR UI PIPELINE
 # -----------------------------------------------------------------------------
 if ($UiMode -and $Url -ne "x" -and $Url -ne "p") {
-    $ytDlpArgs += @("--newline", "--progress-template", "download:YTJ_PROG:%(progress.percent)s_YTJ_%(progress._speed_str)s_YTJ_%(progress._eta_str)s_YTJ_%(progress._total_bytes_estimate_str)s")
+    $metaFile = Join-Path -Path $PSScriptRoot -ChildPath ".ytj_meta.txt"
+    if (Test-Path $metaFile) { Remove-Item $metaFile -Force -ErrorAction SilentlyContinue }
+    
+    $ytDlpArgs += @(
+        "--print-to-file", "YTJ_META:%(duration_string)s_YTJ_%(resolution)s_YTJ_%(view_count)s_YTJ_%(ext)s", $metaFile,
+        "--newline", 
+        "--progress-template", "download:YTJ_PROG:%(progress.percent)s_YTJ_%(progress._speed_str)s_YTJ_%(progress._eta_str)s_YTJ_%(progress._total_bytes_estimate_str)s"
+    )
     
     if ($Playlist) {
         Write-Host ""
@@ -300,6 +316,11 @@ if ($UiMode -and $Url -ne "x" -and $Url -ne "p") {
     }
 
     $currentTitle = "Unknown"
+    $currentUploader = "Unknown"
+    $currentDuration = "?:??"
+    $currentRes = "Unknown"
+    $currentViews = "0"
+    $currentExt = "mp4"
     $completedItems = @()
     $firstPrint = $true
 
@@ -307,11 +328,13 @@ if ($UiMode -and $Url -ne "x" -and $Url -ne "p") {
         $line = $_.ToString()
         
         if ($line -match "YTJ_PROG:\s*([\d\.NA]+)\s*_YTJ_(.*)_YTJ_(.*)_YTJ_(.*)") {
-            $pStr = $matches[1]
-            if ($pStr -eq "NA") { $p = 100 } else { $p = [math]::Round([float]$pStr) }
-            $speed = $matches[2]
-            $eta = $matches[3]
-            $total = $matches[4]
+            $pStr = $matches[1].Trim()
+            $speed = $matches[2].Trim()
+            $eta = $matches[3].Trim()
+            $total = $matches[4].Trim()
+            
+            $p = 0
+            if ($pStr -match "[\d\.]+") { $p = [math]::Floor([double]$pStr) }
             
             if (-not $Playlist) {
                 $barLength = 25
@@ -323,27 +346,56 @@ if ($UiMode -and $Url -ne "x" -and $Url -ne "p") {
                     if ($p -lt 100) { $bar += ">" } else { $bar += "=" }
                 }
                 $bar += " " * $empty
-                Write-Host "`r   Downloading [$bar] $p% | $total | $speed | ETA: $eta   " -NoNewline
+                $msg = "`r   Downloading [" + $bar + "] " + $p + "% | " + $total + " | " + $speed + " | ETA: " + $eta + "   "
+                Write-Host -NoNewline $msg
             } else {
                 if (-not $firstPrint) { Write-Host "`e[1A" -NoNewline }
                 $firstPrint = $false
-                Write-Host " [~] $($completedItems.Count + 1). $currentTitle - $p% ($speed)                      " -ForegroundColor Cyan
+                Write-Host " [~] $($completedItems.Count + 1). $currentTitle [$currentDuration] - $p% ($speed)                      " -ForegroundColor Cyan
             }
         }
         elseif ($line -match "\[download\] Destination: (.*)") {
-            $currentTitle = Split-Path $matches[1] -Leaf
+            $path = $matches[1]
+            $currentTitle = Split-Path $path -Leaf
+            $currentUploader = Split-Path (Split-Path $path -Parent) -Leaf
+            
+            # Attempt to read metadata from the file
+            if (Test-Path $metaFile) {
+                $lastMeta = Get-Content $metaFile | Select-Object -Last 1
+                if ($lastMeta -match "YTJ_META:(.*)_YTJ_(.*)_YTJ_(.*)_YTJ_(.*)") {
+                    $currentDuration = $matches[1]
+                    $currentRes = $matches[2]
+                    $currentViews = $matches[3]
+                    $currentExt = $matches[4]
+                }
+            }
+
             if ($Playlist) {
                 $firstPrint = $true
+            } else {
+                # Format view count nicely if it's a number
+                $viewsStr = $currentViews
+                if ($currentViews -match "^\d+$") {
+                    $v = [long]$currentViews
+                    if ($v -gt 1000000000) { $viewsStr = "$([math]::Round($v/1000000000, 1))B" }
+                    elseif ($v -gt 1000000) { $viewsStr = "$([math]::Round($v/1000000, 1))M" }
+                    elseif ($v -gt 1000) { $viewsStr = "$([math]::Round($v/1000, 1))K" }
+                }
+                
+                Write-Host " [Video] $currentTitle ($currentUploader) [$currentDuration]" -ForegroundColor Cyan
+                Write-Host " [Quality] Quality: $currentRes ($currentExt) | Views: $viewsStr" -ForegroundColor DarkGray
             }
         }
         elseif ($line -match "\[download\] (.*) has already been downloaded") {
-            $currentTitle = Split-Path $matches[1] -Leaf
+            $path = $matches[1]
+            $currentTitle = Split-Path $path -Leaf
             if ($Playlist) {
                 Write-Host " [x] $($completedItems.Count + 1). $currentTitle (Already downloaded)                      " -ForegroundColor Green
                 $completedItems += $currentTitle
                 $firstPrint = $true
             } else {
-                Write-Host "`r   [x] $currentTitle (Already downloaded)                                " -ForegroundColor Green
+                Write-Host " [Video] $currentTitle (Already downloaded)" -ForegroundColor Cyan
+                Write-Host " [Done] Finished.                                " -ForegroundColor DarkGray
             }
         }
         elseif ($line -match "\[download\] 100% of") {
@@ -362,11 +414,15 @@ if ($UiMode -and $Url -ne "x" -and $Url -ne "p") {
         }
     }
     
+    if (Test-Path $metaFile) { Remove-Item $metaFile -Force -ErrorAction SilentlyContinue }
+    
     if ($Playlist) {
         Write-Host "------------------------------------------------------------"
         Write-Host ""
         Write-Step -Type "success" -Message "Playlist Sync Complete."
     } else {
+        Write-Host "`n [Done] Saved to: $path" -ForegroundColor DarkGray
+        Write-Host ""
         Write-Step -Type "success" -Message "Task finished."
     }
     exit $LASTEXITCODE
