@@ -1,3 +1,8 @@
+# -----------------------------------------------------------------------------
+# DEFENSIVE PARAMETER BINDING
+# We explicitly map [switch]$v and [switch]$d to prevent PowerShell's 
+# generic binder from silently consuming "-v" as the built-in "-Verbose".
+# -----------------------------------------------------------------------------
 param(
     [switch]$v,
     [switch]$VerboseLog,
@@ -163,6 +168,9 @@ $execLines += "Status:  Initializing..."
 
 Write-Panel -Title "Executing yt-dlp" -Lines $execLines -Color Magenta
 
+# -----------------------------------------------------------------------------
+# NATIVE BINARY RESOLUTION & AUTO-BOOTSTRAP
+# -----------------------------------------------------------------------------
 $os = "windows"
 $binaryName = "yt-dlp.exe"
 
@@ -198,5 +206,11 @@ if (-not (Test-Path $exePath)) {
     }
 }
 
+# -----------------------------------------------------------------------------
+# NATIVE STREAM PASSTHROUGH
+# We use the native call operator (&) instead of Start-Process.
+# This prevents output buffer swallowing and guarantees yt-dlp's 
+# \r dynamic progress bar renders correctly in real-time.
+# -----------------------------------------------------------------------------
 & $exePath $ytDlpArgs
 exit $LASTEXITCODE

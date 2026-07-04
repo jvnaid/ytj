@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+
+# ytj - macOS and Linux entry point
+# This script forwards execution to the cross-platform PowerShell core engine.
+# See docs/architecture.md for implementation details.
+
+DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+
+# Ensure PowerShell Core is installed
+if ! command -v pwsh &> /dev/null; then
+    echo "============================================================"
+    echo " ytj requires PowerShell Core (pwsh) to run on Unix systems "
+    echo "============================================================"
+    echo "Please install it: https://learn.microsoft.com/en-us/powershell/scripting/install/installing-powershell"
+    exit 1
+fi
+
+# Forward all arguments safely
+pwsh -NoProfile -ExecutionPolicy Bypass -File "$DIR/ytj.ps1" "$@"
