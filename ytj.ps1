@@ -21,6 +21,7 @@ $Subs = $false
 $Thumb = $false
 $Playlist = $false
 $Sync = $false
+$UiMode = $false
 $VerboseMode = $v.IsPresent -or $VerboseLog.IsPresent
 $DebugMode = $d.IsPresent -or $DebugLog.IsPresent
 if ($DebugMode) { $VerboseMode = $true }
@@ -59,6 +60,7 @@ foreach ($arg in $ArgsList) {
     elseif ($arg -eq "--thumb") { $Thumb = $true }
     elseif ($arg -eq "--playlist") { $Playlist = $true }
     elseif ($arg -eq "--sync") { $Sync = $true }
+    elseif ($arg -eq "--ui") { $UiMode = $true }
     elseif ($arg -match "^https?://") { $Url = $arg }
     elseif (-not $Url -and $arg -notmatch "^-") { $Url = $arg }
     else { $OtherArgs += $arg }
@@ -206,11 +208,173 @@ if (-not (Test-Path $exePath)) {
     }
 }
 
+if ($UiMode) {
+    if ($Url -eq "x") {
+        Write-Host ""
+        Write-Step -Type "info" -Message "Mock Single File UI Started"
+        Write-Host ""
+        for ($i = 0; $i -le 100; $i += 5) {
+            $barLength = 25
+            $filled = [math]::Floor(($i / 100) * $barLength)
+            $empty = $barLength - $filled
+            
+            $bar = ""
+            if ($filled -gt 0) {
+                $bar += "=" * ($filled - 1)
+                if ($i -lt 100) { $bar += ">" } else { $bar += "=" }
+            }
+            $bar += " " * $empty
+            
+            $speed = "3.2MiB/s"
+            $eta = "00:0" + (10 - [math]::Floor($i/10))
+            if ($eta -eq "00:010") { $eta = "00:10" }
+            $text = "`r   Downloading [$bar] $i% | 52.7MiB | $speed | ETA: $eta   "
+            Write-Host -NoNewline $text
+            Start-Sleep -Milliseconds 100
+        }
+        Write-Host "`n"
+        Write-Step -Type "success" -Message "Task finished (download complete)."
+        exit 0
+    }
+    elseif ($Url -eq "p") {
+        Write-Host ""
+        Write-Step -Type "info" -Message "Playlist Sync Started (3 items)"
+        Write-Host "------------------------------------------------------------"
+        $items = @("DIGITAL DOPAMINE (jungle dnb)", "lostmemory.mp3", "intelligent liquid dnb mix")
+        $states = @(0, 0, 0)
+        $progress = @(0, 0, 0)
+
+        # Pre-draw
+        for ($i = 0; $i -lt 3; $i++) {
+            Write-Host " [ ] $($i+1). $($items[$i])"
+        }
+        Write-Host "------------------------------------------------------------"
+        
+        $lineCount = 4 # 3 items + 1 dashed line
+
+        for ($current = 0; $current -lt 3; $current++) {
+            $states[$current] = 1 # downloading
+            for ($p = 0; $p -le 100; $p += 15) {
+                $progress[$current] = $p
+                Write-Host "`e[${lineCount}A" -NoNewline
+                for ($i = 0; $i -lt 3; $i++) {
+                    if ($states[$i] -eq 0) {
+                        Write-Host " [ ] $($i+1). $($items[$i])                                "
+                    } elseif ($states[$i] -eq 1) {
+                        $bar = "$($progress[$i])% (3.2MiB/s)"
+                        Write-Host " [~] $($i+1). $($items[$i]) - $bar                      " -ForegroundColor Cyan
+                    } else {
+                        Write-Host " [x] $($i+1). $($items[$i])                                " -ForegroundColor Green
+                    }
+                }
+                Write-Host "------------------------------------------------------------"
+                Start-Sleep -Milliseconds 150
+            }
+            $states[$current] = 2 # done
+        }
+        
+        # Final Draw
+        Write-Host "`e[${lineCount}A" -NoNewline
+        for ($i = 0; $i -lt 3; $i++) {
+            Write-Host " [x] $($i+1). $($items[$i])                                " -ForegroundColor Green
+        }
+        Write-Host "------------------------------------------------------------"
+        Write-Host ""
+        Write-Step -Type "success" -Message "Playlist Sync Complete."
+        exit 0
+    }
+}
+
 # -----------------------------------------------------------------------------
-# NATIVE STREAM PASSTHROUGH
-# We use the native call operator (&) instead of Start-Process.
-# This prevents output buffer swallowing and guarantees yt-dlp's 
-# \r dynamic progress bar renders correctly in real-time.
+# NATIVE STREAM PASSTHROUGH OR UI PIPELINE
 # -----------------------------------------------------------------------------
-& $exePath $ytDlpArgs
-exit $LASTEXITCODE
+if ($UiMode -and $Url -ne "x" -and $Url -ne "p") {
+    $ytDlpArgs += @("--newline", "--progress-template", "download:YTJ_PROG:%(progress.percent)s_YTJ_%(progress._speed_str)s_YTJ_%(progress._eta_str)s_YTJ_%(progress._total_bytes_estimate_str)s")
+    
+    if ($Playlist) {
+        Write-Host ""
+        Write-Step -Type "info" -Message "Playlist Sync Started"
+        Write-Host "------------------------------------------------------------"
+    } else {
+        Write-Host ""
+    }
+
+    $currentTitle = "Unknown"
+    $completedItems = @()
+    $firstPrint = $true
+
+    & $exePath $ytDlpArgs 2>&1 | ForEach-Object {
+        $line = $_.ToString()
+        
+        if ($line -match "YTJ_PROG:\s*([\d\.NA]+)\s*_YTJ_(.*)_YTJ_(.*)_YTJ_(.*)") {
+            $pStr = $matches[1]
+            if ($pStr -eq "NA") { $p = 100 } else { $p = [math]::Round([float]$pStr) }
+            $speed = $matches[2]
+            $eta = $matches[3]
+            $total = $matches[4]
+            
+            if (-not $Playlist) {
+                $barLength = 25
+                $filled = [math]::Floor(($p / 100) * $barLength)
+                $empty = $barLength - $filled
+                $bar = ""
+                if ($filled -gt 0) {
+                    $bar += "=" * ($filled - 1)
+                    if ($p -lt 100) { $bar += ">" } else { $bar += "=" }
+                }
+                $bar += " " * $empty
+                Write-Host "`r   Downloading [$bar] $p% | $total | $speed | ETA: $eta   " -NoNewline
+            } else {
+                if (-not $firstPrint) { Write-Host "`e[1A" -NoNewline }
+                $firstPrint = $false
+                Write-Host " [~] $($completedItems.Count + 1). $currentTitle - $p% ($speed)                      " -ForegroundColor Cyan
+            }
+        }
+        elseif ($line -match "\[download\] Destination: (.*)") {
+            $currentTitle = Split-Path $matches[1] -Leaf
+            if ($Playlist) {
+                $firstPrint = $true
+            }
+        }
+        elseif ($line -match "\[download\] (.*) has already been downloaded") {
+            $currentTitle = Split-Path $matches[1] -Leaf
+            if ($Playlist) {
+                Write-Host " [x] $($completedItems.Count + 1). $currentTitle (Already downloaded)                      " -ForegroundColor Green
+                $completedItems += $currentTitle
+                $firstPrint = $true
+            } else {
+                Write-Host "`r   [x] $currentTitle (Already downloaded)                                " -ForegroundColor Green
+            }
+        }
+        elseif ($line -match "\[download\] 100% of") {
+            if ($Playlist) {
+                if (-not $firstPrint) { Write-Host "`e[1A" -NoNewline }
+                Write-Host " [x] $($completedItems.Count + 1). $currentTitle                                      " -ForegroundColor Green
+                $completedItems += $currentTitle
+                $firstPrint = $true
+            } else {
+                Write-Host "`n"
+            }
+        }
+        elseif ($VerboseMode -and -not ($line -match "^YTJ_PROG")) {
+            # Only print raw logs if verbose is enabled, but note that it breaks ASCII alignment
+            Write-Host $line
+        }
+    }
+    
+    if ($Playlist) {
+        Write-Host "------------------------------------------------------------"
+        Write-Host ""
+        Write-Step -Type "success" -Message "Playlist Sync Complete."
+    } else {
+        Write-Step -Type "success" -Message "Task finished."
+    }
+    exit $LASTEXITCODE
+}
+else {
+    # We use the native call operator (&) instead of Start-Process.
+    # This prevents output buffer swallowing and guarantees yt-dlp's 
+    # \r dynamic progress bar renders correctly in real-time.
+    & $exePath $ytDlpArgs
+    exit $LASTEXITCODE
+}
