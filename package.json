@@ -1,6 +1,6 @@
 {
   "name": "@jvnaid/ytj",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "A zero-config, quality-of-life wrapper around yt-dlp",
   "main": "index.js",
   "bin": {
