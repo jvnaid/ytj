@@ -64,7 +64,10 @@ function Show-Menu {
     Write-Host "`n $Title" -ForegroundColor Cyan
     Write-Host "------------------------------------------------------------" -ForegroundColor Cyan
 
-    $cursorTop = [Console]::CursorTop
+    # Pre-allocate lines to prevent scrolling bugs during redraws
+    for ($i = 0; $i -lt $Options.Count; $i++) { Write-Host "" }
+    $cursorTop = [Console]::CursorTop - $Options.Count
+
     [Console]::CursorVisible = $false
 
     try {
