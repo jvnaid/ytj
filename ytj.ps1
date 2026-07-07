@@ -1,16 +1,5 @@
 # -----------------------------------------------------------------------------
-# DEFENSIVE PARAMETER BINDING
-# We explicitly map [switch]$v and [switch]$d to prevent PowerShell's 
-# generic binder from silently consuming "-v" as the built-in "-Verbose".
-# -----------------------------------------------------------------------------
-param(
-    [switch]$v,
-    [switch]$VerboseLog,
-    [switch]$d,
-    [switch]$DebugLog,
-    [Parameter(ValueFromRemainingArguments = $true)]
-    [string[]]$ArgsList
-)
+$ArgsList = $args
 
 $Url = $null
 $AudioChapters = $false
@@ -23,9 +12,9 @@ $Playlist = $false
 $Sync = $false
 $UiMode = $false
 $ChooseDir = $false
-$VerboseMode = $v.IsPresent -or $VerboseLog.IsPresent
-$DebugMode = $d.IsPresent -or $DebugLog.IsPresent
-if ($DebugMode) { $VerboseMode = $true }
+$TargetDirName = $null
+$VerboseMode = $false
+$DebugMode = $false
 $OtherArgs = @()
 if ($DebugMode) { $OtherArgs += "-v" }
 
@@ -101,17 +90,24 @@ function Show-Menu {
     return $Options[$selectedIndex]
 }
 
-foreach ($arg in $ArgsList) {
+for ($idx = 0; $idx -lt $ArgsList.Count; $idx++) {
+    $arg = $ArgsList[$idx]
     if ($arg -eq "--audio-chapters") { $AudioChapters = $true }
     elseif ($arg -eq "--chapters") { $Chapters = $true }
     elseif ($arg -in @("-a", "--audio")) { $AudioOnly = $true }
-    elseif ($arg -eq "--verbose") { $VerboseMode = $true }
+    elseif ($arg -in @("-v", "--verbose")) { $VerboseMode = $true }
     elseif ($arg -eq "--debug") { $DebugMode = $true; $VerboseMode = $true; $OtherArgs += "-v" }
     elseif ($arg -eq "--no-sponsors") { $NoSponsors = $true }
     elseif ($arg -eq "--subs") { $Subs = $true }
     elseif ($arg -eq "--thumb") { $Thumb = $true }
     elseif ($arg -eq "--playlist") { $Playlist = $true }
-    elseif ($arg -in @("-c", "--choose", "--dir")) { $ChooseDir = $true }
+    elseif ($arg -in @("-d", "--dir")) { 
+        $ChooseDir = $true 
+        if (($idx + 1) -lt $ArgsList.Count -and $ArgsList[$idx+1] -notmatch "^-") {
+            $TargetDirName = $ArgsList[$idx+1]
+            $idx++
+        }
+    }
     elseif ($arg -eq "--sync") { $Sync = $true }
     elseif ($arg -eq "--ui") { $UiMode = $true }
     elseif ($arg -match "^https?://") { $Url = $arg }
@@ -140,7 +136,7 @@ if (-not $Url) {
         "  --no-sponsors      [ON]  Skip sponsor segments automatically",
         "  --subs             [CC]  Embed English subtitles",
         "  --thumb            [IMG] Embed high-res thumbnail",
-        "  -c, --choose       [DIR] Select target download folder interactively",
+        "  -d, --dir [NAME]   [DIR] Select or create target download folder interactively",
         "  --playlist         [PL]  Allow downloading entire playlist",
         "  --sync             [SYNC] Sync a channel (skips previously downloaded)"
     )
@@ -158,29 +154,34 @@ $ytDlpArgs += @("--no-overwrites", "--no-post-overwrites")
 $targetFolder = "%(uploader)s"
 if ($ChooseDir) {
     $downloadsDir = Join-Path -Path $PSScriptRoot -ChildPath "downloads"
-    $subdirs = @()
-    if (Test-Path $downloadsDir) {
-        $subdirs = Get-ChildItem -Path $downloadsDir -Directory | Select-Object -ExpandProperty Name
-    }
+    if (-not (Test-Path $downloadsDir)) { New-Item -ItemType Directory -Path $downloadsDir -Force | Out-Null }
     
-    if ($subdirs.Count -gt 0) {
-        $options = @()
-        $options += $subdirs
-        $options += "[Create New Folder...]"
-        $options += "[Default: %(uploader)s]"
+    if ($TargetDirName) {
+        $targetFolder = $TargetDirName
+        $newDir = Join-Path $downloadsDir $TargetDirName
+        if (-not (Test-Path $newDir)) { New-Item -ItemType Directory -Path $newDir -Force | Out-Null }
+    } else {
+        $subdirs = Get-ChildItem -Path $downloadsDir -Directory | Select-Object -ExpandProperty Name
         
-        $selection = Show-Menu -Title "Select Download Folder:" -Options $options
-        
-        if ($selection -eq "[Create New Folder...]") {
-            Write-Host "`n > Enter new folder name: " -ForegroundColor Yellow -NoNewline
-            $newFolder = Read-Host
-            if ([string]::IsNullOrWhiteSpace($newFolder)) {
-                $targetFolder = "%(uploader)s"
-            } else {
-                $targetFolder = $newFolder.Trim()
+        if ($subdirs.Count -gt 0) {
+            $options = @()
+            $options += $subdirs
+            $options += "[Create New Folder...]"
+            $options += "[Default: %(uploader)s]"
+            
+            $selection = Show-Menu -Title "Select Download Folder:" -Options $options
+            
+            if ($selection -eq "[Create New Folder...]") {
+                Write-Host "`n > Enter new folder name: " -ForegroundColor Yellow -NoNewline
+                $newFolder = Read-Host
+                if ([string]::IsNullOrWhiteSpace($newFolder)) {
+                    $targetFolder = "%(uploader)s"
+                } else {
+                    $targetFolder = $newFolder.Trim()
+                }
+            } elseif ($selection -ne "[Default: %(uploader)s]") {
+                $targetFolder = $selection
             }
-        } elseif ($selection -ne "[Default: %(uploader)s]") {
-            $targetFolder = $selection
         }
     }
 }
