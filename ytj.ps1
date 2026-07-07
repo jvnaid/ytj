@@ -66,6 +66,11 @@ foreach ($arg in $ArgsList) {
     else { $OtherArgs += $arg }
 }
 
+# Auto-detect playlists or profile IDs
+if ($Url -match "list=" -or $Url -match "@" -or $Url -match "/channel/" -or $Url -match "/c/" -or $Url -match "/user/") {
+    $Playlist = $true
+}
+
 if (-not $Url) {
     $helpLines = @(
         "USAGE: ytj <link> [options]",
