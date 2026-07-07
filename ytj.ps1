@@ -22,6 +22,7 @@ $Thumb = $false
 $Playlist = $false
 $Sync = $false
 $UiMode = $false
+$ChooseDir = $false
 $VerboseMode = $v.IsPresent -or $VerboseLog.IsPresent
 $DebugMode = $d.IsPresent -or $DebugLog.IsPresent
 if ($DebugMode) { $VerboseMode = $true }
@@ -49,6 +50,54 @@ function Write-Step {
     else { Write-Host "    $Message" }
 }
 
+function Show-Menu {
+    param(
+        [string]$Title,
+        [string[]]$Options
+    )
+    if ([Console]::IsOutputRedirected) {
+        Write-Host "Interactive menu cannot be displayed. Defaulting to: $($Options[0])"
+        return $Options[0]
+    }
+    
+    $selectedIndex = 0
+    Write-Host "`n $Title" -ForegroundColor Cyan
+    Write-Host "------------------------------------------------------------" -ForegroundColor Cyan
+
+    $cursorTop = [Console]::CursorTop
+    [Console]::CursorVisible = $false
+
+    try {
+        while ($true) {
+            [Console]::SetCursorPosition(0, $cursorTop)
+            for ($i = 0; $i -lt $Options.Count; $i++) {
+                if ($i -eq $selectedIndex) {
+                    Write-Host " > $($Options[$i]) ".PadRight(50) -ForegroundColor Black -BackgroundColor Cyan
+                } else {
+                    Write-Host "   $($Options[$i]) ".PadRight(50)
+                }
+            }
+            
+            $keyInfo = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+            if ($keyInfo.VirtualKeyCode -eq 38) { # Up arrow
+                if ($selectedIndex -gt 0) { $selectedIndex-- }
+            } elseif ($keyInfo.VirtualKeyCode -eq 40) { # Down arrow
+                if ($selectedIndex -lt ($Options.Count - 1)) { $selectedIndex++ }
+            } elseif ($keyInfo.VirtualKeyCode -eq 13) { # Enter
+                break
+            }
+        }
+    } finally {
+        [Console]::CursorVisible = $true
+        # Clear the menu lines
+        [Console]::SetCursorPosition(0, $cursorTop)
+        for ($i = 0; $i -lt $Options.Count; $i++) { Write-Host "".PadRight(50) }
+        [Console]::SetCursorPosition(0, $cursorTop)
+    }
+    
+    return $Options[$selectedIndex]
+}
+
 foreach ($arg in $ArgsList) {
     if ($arg -eq "--audio-chapters") { $AudioChapters = $true }
     elseif ($arg -eq "--chapters") { $Chapters = $true }
@@ -59,6 +108,7 @@ foreach ($arg in $ArgsList) {
     elseif ($arg -eq "--subs") { $Subs = $true }
     elseif ($arg -eq "--thumb") { $Thumb = $true }
     elseif ($arg -eq "--playlist") { $Playlist = $true }
+    elseif ($arg -in @("-c", "--choose", "--dir")) { $ChooseDir = $true }
     elseif ($arg -eq "--sync") { $Sync = $true }
     elseif ($arg -eq "--ui") { $UiMode = $true }
     elseif ($arg -match "^https?://") { $Url = $arg }
@@ -87,6 +137,7 @@ if (-not $Url) {
         "  --no-sponsors      [ON]  Skip sponsor segments automatically",
         "  --subs             [CC]  Embed English subtitles",
         "  --thumb            [IMG] Embed high-res thumbnail",
+        "  -c, --choose       [DIR] Select target download folder interactively",
         "  --playlist         [PL]  Allow downloading entire playlist",
         "  --sync             [SYNC] Sync a channel (skips previously downloaded)"
     )
@@ -101,7 +152,36 @@ $ytDlpArgs += @("--no-overwrites", "--no-post-overwrites")
 
 # Handle directory and naming based on Uploader
 # yt-dlp will automatically create the uploader directory if it doesn't exist
-$ytDlpArgs += @("-o", "downloads/%(uploader)s/%(title)s.%(ext)s")
+$targetFolder = "%(uploader)s"
+if ($ChooseDir) {
+    $downloadsDir = Join-Path -Path $PSScriptRoot -ChildPath "downloads"
+    $subdirs = @()
+    if (Test-Path $downloadsDir) {
+        $subdirs = Get-ChildItem -Path $downloadsDir -Directory | Select-Object -ExpandProperty Name
+    }
+    
+    if ($subdirs.Count -gt 0) {
+        $options = @()
+        $options += $subdirs
+        $options += "[Create New Folder...]"
+        $options += "[Default: %(uploader)s]"
+        
+        $selection = Show-Menu -Title "Select Download Folder:" -Options $options
+        
+        if ($selection -eq "[Create New Folder...]") {
+            Write-Host "`n > Enter new folder name: " -ForegroundColor Yellow -NoNewline
+            $newFolder = Read-Host
+            if ([string]::IsNullOrWhiteSpace($newFolder)) {
+                $targetFolder = "%(uploader)s"
+            } else {
+                $targetFolder = $newFolder.Trim()
+            }
+        } elseif ($selection -ne "[Default: %(uploader)s]") {
+            $targetFolder = $selection
+        }
+    }
+}
+$ytDlpArgs += @("-o", "downloads/$targetFolder/%(title)s.%(ext)s")
 
 if ($Sync) {
     # Syncing implies downloading a playlist/channel
