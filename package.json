@@ -1,0 +1,20 @@
+{
+  "name": "ytj",
+  "version": "1.0.0",
+  "description": "A zero-config, quality-of-life wrapper around yt-dlp",
+  "main": "index.js",
+  "bin": {
+    "ytj": "./index.js"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "yt-dlp",
+    "youtube",
+    "downloader",
+    "cli"
+  ],
+  "author": "",
+  "license": "MIT"
+}
