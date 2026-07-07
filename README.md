@@ -14,9 +14,13 @@
 
 `ytj` is truly zero-configuration and cross-platform. It automatically manages its own dependencies!
 
-1. Place `ytj.ps1` (and `ytj.bat` if on Windows) into any directory.
-2. Add that directory to your system's `PATH` environment variable so you can run `ytj` from anywhere in your command line.
-3. On your first run, `ytj` will automatically detect your OS (Windows, Linux, or macOS) and download the correct `yt-dlp` binary if you don't already have it installed.
+1. **Clone or Download** this repository.
+2. Open your terminal in the downloaded folder.
+3. On your first run, `ytj` will automatically detect your OS (Windows, Linux, or macOS) and seamlessly bootstrap the correct `yt-dlp` binary behind the scenes!
+
+That's it. No `pip install`, no `brew install`, no manual paths.
+
+*(Optional: Add the folder to your system `PATH` so you can use `ytj` anywhere!)*
 
 ### Updating
 
@@ -31,7 +35,11 @@ ytj -U
 
 **Download highest quality video (MP4)**
 ```bash
+# Windows
 ytj "https://youtube.com/watch?v=..."
+
+# Mac / Linux
+./ytj "https://youtube.com/watch?v=..."
 ```
 
 > [!WARNING]
@@ -55,12 +63,13 @@ You can mix and match these flags with any command:
 | :--- | :--- |
 | `-a` or `--audio` | Download the highest quality audio (MP3 only) |
 | `-v` or `--verbose` | Disables quiet mode and shows standard `yt-dlp` output (no spam) |
-| `-d` or `--debug` | Enables extreme `yt-dlp` debugging logs (network traces, config hashes) |
+| `--debug` | Enables extreme `yt-dlp` debugging logs (network traces, config hashes) |
 | `--no-sponsors` | Integrates SponsorBlock to automatically skip ad/sponsor segments |
 | `--subs` | Automatically embeds English subtitles if available |
 | `--thumb` | Automatically embeds the high-resolution YouTube thumbnail |
-| `--playlist` | Required if you want to download an entire playlist (disabled by default) |
-| `--sync` | Syncs a channel. Automatically enables playlist downloads and records finished videos to a master `ytj_archive.txt` file, allowing you to flawlessly resume interrupted downloads or fetch new uploads later. |
+| `-d` or `--dir` | Interactively select or specify a target download directory `ytj <url> -d [FolderName]` |
+| `--playlist` | Force-allow downloading a playlist. **Note:** Passing a `@channel`, `/user/`, or `list=` URL will automatically trigger playlist mode! |
+| `--sync` | Syncs a channel. Records finished videos to a master `ytj_archive.txt` file, allowing you to flawlessly resume interrupted downloads or fetch new uploads later. |
 
 ### Passthrough
 
