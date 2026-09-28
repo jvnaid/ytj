@@ -78,7 +78,33 @@ Mix and match these flags with any command:
 | `--thumb` | Automatically embeds the high-resolution YouTube thumbnail |
 | `-d`, `--dir` | Interactively select a target download folder via an **Arrow-Key Menu**, or specify one manually: `ytj <url> -d MyFolder` |
 | `--playlist` | Force-allow downloading a playlist. *(Triggered automatically by channel URLs)* |
-| `--sync` | Syncs a channel. Records finished videos to `ytj_archive.txt`, allowing you to flawlessly resume interrupted mass-downloads. |
+| `--sync` | Syncs a channel. Records finished videos to `archive.txt`, allowing you to flawlessly resume interrupted mass-downloads. |
+| `--download-config` | Sets a persistent download directory (e.g. `ytj --download-config "D:\Media"`). Reset anytime with `default`. |
+| `-c`, `--config` | Displays the active configuration dashboard, default vs override paths, and archive file location. |
+
+---
+
+### ⚙️ Persistent Configuration & Duplicate Detection
+
+`ytj` allows you to define a permanent download library location while retaining full awareness of previously downloaded files across multiple folders:
+
+```bash
+# Set a custom persistent download location
+ytj --download-config "D:\Media\YouTube"
+
+# View active vs default paths
+ytj --config
+
+# Reset back to the local ./downloads directory
+ytj --download-config default
+```
+
+#### 🔍 Cross-Path Duplicate Protection
+`ytj` tracks all downloaded video IDs in a global archive (`~/.ytj/archive.txt`). Whenever you download a video, `ytj` automatically inspects both your **Default** (`./downloads`) and **Override** libraries:
+- If the file exists in your alternative folder, `ytj` flags it to you with an instant Notice panel.
+- If already downloaded in your active library, `ytj` guarantees your existing files are never overwritten.
+
+---
 
 ### 🛠️ Passthrough
 
@@ -96,3 +122,4 @@ Since streaming platforms frequently change their systems, you will occasionally
 ```bash
 ytj -U
 ```
+

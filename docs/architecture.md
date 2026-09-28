@@ -28,4 +28,15 @@ Instead of executing commands conditionally, `ytj.ps1` iteratively builds an arg
 A critical design choice in `ytj` is the use of the native PowerShell Call Operator (`& $exePath $ytDlpArgs`) rather than background execution cmdlets like `Start-Process`. By executing the binary natively within the script's runspace, `yt-dlp` retains direct access to the standard output streams (`stdout`/`stderr`). This prevents output swallowing and allows `yt-dlp`'s dynamic progress bar (which relies on carriage returns `\r` to continually overwrite the console line) to function flawlessly.
 
 ### Defensive Parameter Binding
-PowerShell's advanced parameter binder can occasionally hijack shorthand flags that happen to map to built-in system parameters (for example, `-v` being silently swallowed as `-Verbose`). `ytj` employs explicit `[switch]` definitions in its `param()` block to defensively capture these flags, ensuring they are safely routed to the custom execution logic rather than being consumed by the PowerShell runtime.
+PowerShell's advanced parameter binder can occasionally hijack shorthand flags that happen to map to built-in system parameters (for example, `-v` being silently swallowed as `-Verbose`). `ytj` employs explicit `[switch]` definitions in its argument parser to defensively capture these flags, ensuring they are safely routed to custom execution logic rather than being consumed by the PowerShell runtime.
+
+### Configuration Management & Dynamic Path Resolution
+`ytj` maintains a cross-platform user configuration store in `~/.ytj/config.json`. When determining output directories, it evaluates:
+1. **Configured Override:** If set in `config.json` and accessible, downloads route to the specified absolute path.
+2. **Dynamic Default:** If no override is present or if the target drive is detached, `ytj` seamlessly falls back to `$PWD/downloads` (the active terminal session's working directory), ensuring consistent behavior when installed globally via NPM.
+
+### Multi-Path Indexing & Cross-Path Duplicate Protection
+To prevent unintentional duplicate downloads across different folders, `ytj` employs a two-tier memory strategy:
+- **Global Archive (`~/.ytj/archive.txt`):** Persistently logs all downloaded video IDs across both default and custom libraries, passing `--download-archive` to `yt-dlp`.
+- **Cross-Path File Scan:** Before launching a download, `ytj` extracts the target video ID and scans both the active and alternative library paths. If the media file already exists in the other folder, `ytj` immediately flags it with a Notice panel.
+
