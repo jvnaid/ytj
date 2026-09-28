@@ -90,6 +90,79 @@ function Show-Menu {
     return $Options[$selectedIndex]
 }
 
+function Get-YtjHomeDir {
+    if ($env:USERPROFILE) { return $env:USERPROFILE }
+    if ($env:HOME) { return $env:HOME }
+    return [Environment]::GetFolderPath("UserProfile")
+}
+
+function Get-YtjConfigDir {
+    $homeDir = Get-YtjHomeDir
+    $dir = Join-Path -Path $homeDir -ChildPath ".ytj"
+    if (-not (Test-Path $dir)) {
+        New-Item -ItemType Directory -Path $dir -Force | Out-Null
+    }
+    return $dir
+}
+
+function Get-YtjConfigPath {
+    return (Join-Path -Path (Get-YtjConfigDir) -ChildPath "config.json")
+}
+
+function Get-YtjGlobalArchivePath {
+    return (Join-Path -Path (Get-YtjConfigDir) -ChildPath "archive.txt")
+}
+
+function Get-YtjConfig {
+    $configPath = Get-YtjConfigPath
+    $config = @{
+        downloadDir = $null
+    }
+    if (Test-Path $configPath) {
+        try {
+            $json = Get-Content -Path $configPath -Raw -ErrorAction Stop | ConvertFrom-Json
+            if ($json.downloadDir) {
+                $config.downloadDir = $json.downloadDir
+            }
+        } catch {}
+    }
+    return $config
+}
+
+function Set-YtjConfig {
+    param([string]$DownloadDir)
+    $configPath = Get-YtjConfigPath
+    $config = @{
+        downloadDir = $DownloadDir
+    }
+    $json = $config | ConvertTo-Json -Depth 2
+    Set-Content -Path $configPath -Value $json -Force
+}
+
+function Show-YtjConfig {
+    $config = Get-YtjConfig
+    $configPath = Get-YtjConfigPath
+    $globalArchive = Get-YtjGlobalArchivePath
+    
+    $defaultDir = (Join-Path -Path $PWD -ChildPath "downloads")
+    $overrideDir = if ($config.downloadDir) { $config.downloadDir } else { "None (Using Default)" }
+    $activeDir = if ($config.downloadDir -and (Test-Path $config.downloadDir)) { $config.downloadDir } else { $defaultDir }
+    
+    $lines = @(
+        "Config File:       $configPath",
+        "Global Archive:    $globalArchive",
+        "",
+        "Default Location:  $defaultDir",
+        "Override Location: $overrideDir",
+        "Active Location:   $activeDir"
+    )
+    Write-Panel -Title "ytj Configuration" -Lines $lines -Color Cyan
+}
+
+$DownloadConfigArg = $null
+$SetDownloadConfig = $false
+$ShowConfigOnly = $false
+
 for ($idx = 0; $idx -lt $ArgsList.Count; $idx++) {
     $arg = $ArgsList[$idx]
     if ($arg -eq "--audio-chapters") { $AudioChapters = $true }
@@ -108,11 +181,47 @@ for ($idx = 0; $idx -lt $ArgsList.Count; $idx++) {
             $idx++
         }
     }
+    elseif ($arg -eq "--download-config") {
+        $SetDownloadConfig = $true
+        if (($idx + 1) -lt $ArgsList.Count -and $ArgsList[$idx+1] -notmatch "^-") {
+            $DownloadConfigArg = $ArgsList[$idx+1]
+            $idx++
+        }
+    }
+    elseif ($arg -in @("-c", "--config")) {
+        $ShowConfigOnly = $true
+    }
     elseif ($arg -eq "--sync") { $Sync = $true }
     elseif ($arg -eq "--ui") { $UiMode = $true }
     elseif ($arg -match "^https?://") { $Url = $arg }
     elseif (-not $Url -and $arg -notmatch "^-") { $Url = $arg }
     else { $OtherArgs += $arg }
+}
+
+if ($ShowConfigOnly) {
+    Show-YtjConfig
+    exit 0
+}
+
+if ($SetDownloadConfig) {
+    if (-not $DownloadConfigArg -or $DownloadConfigArg -in @("default", "reset", "none")) {
+        Set-YtjConfig -DownloadDir $null
+        Write-Step -Type "success" -Message "Download directory reset to default (./downloads)."
+    } else {
+        $resolved = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($DownloadConfigArg)
+        if (-not (Test-Path $resolved)) {
+            try {
+                New-Item -ItemType Directory -Path $resolved -Force | Out-Null
+            } catch {
+                Write-Step -Type "error" -Message "Could not create directory at '$resolved': $_"
+                exit 1
+            }
+        }
+        Set-YtjConfig -DownloadDir $resolved
+        Write-Step -Type "success" -Message "Persistent download directory configured:"
+        Write-Host "   $resolved`n" -ForegroundColor Cyan
+    }
+    exit 0
 }
 
 # Auto-detect playlists or profile IDs
@@ -125,23 +234,51 @@ if (-not $Url) {
         "USAGE: ytj <link> [options]",
         "",
         "CORE COMMANDS",
-        "  <link>             [MP4] Download highest quality",
-        "  --audio-chapters   [MP3] Download audio only and split by chapters",
-        "  --chapters         [MP4] Download video and split by chapters",
+        "  <link>                   [MP4] Download highest quality",
+        "  --audio-chapters         [MP3] Download audio only and split by chapters",
+        "  --chapters               [MP4] Download video and split by chapters",
         "",
         "QUALITY OF LIFE EXTRAS",
-        "  -a, --audio        [MP3] Download audio only",
-        "  -v, --verbose      [LOG] Show standard yt-dlp output (disable quiet mode)",
-        "  -d, --debug        [LOG] Show extreme yt-dlp debug output",
-        "  --no-sponsors      [ON]  Skip sponsor segments automatically",
-        "  --subs             [CC]  Embed English subtitles",
-        "  --thumb            [IMG] Embed high-res thumbnail",
-        "  -d, --dir [NAME]   [DIR] Select or create target download folder interactively",
-        "  --playlist         [PL]  Allow downloading entire playlist",
-        "  --sync             [SYNC] Sync a channel (skips previously downloaded)"
+        "  -a, --audio              [MP3] Download audio only",
+        "  -v, --verbose            [LOG] Show standard yt-dlp output (disable quiet mode)",
+        "  --debug                  [LOG] Show extreme yt-dlp debug output",
+        "  --no-sponsors            [ON]  Skip sponsor segments automatically",
+        "  --subs                   [CC]  Embed English subtitles",
+        "  --thumb                  [IMG] Embed high-res thumbnail",
+        "  -d, --dir [NAME]         [DIR] Select or create target download folder interactively",
+        "  --playlist               [PL]  Allow downloading entire playlist",
+        "  --sync                   [SYNC] Sync a channel (skips previously downloaded)",
+        "",
+        "CONFIGURATION",
+        "  --download-config <DIR>  [CFG] Set persistent download directory (or 'default')",
+        "  --config, -c             [CFG] Display active configuration and storage paths"
     )
     Write-Panel -Title "ytj : The Zero-Config yt-dlp Wrapper" -Lines $helpLines -Color Cyan
     exit 1
+}
+
+# Base Directory Resolution
+$config = Get-YtjConfig
+$defaultBaseDir = (Join-Path -Path $PWD -ChildPath "downloads")
+$overrideBaseDir = $config.downloadDir
+$activeBaseDir = $defaultBaseDir
+$alternativeBaseDir = $null
+
+if ($overrideBaseDir) {
+    if (Test-Path $overrideBaseDir) {
+        $activeBaseDir = $overrideBaseDir
+        $alternativeBaseDir = $defaultBaseDir
+    } else {
+        Write-Step -Type "error" -Message "Configured directory is inaccessible: $overrideBaseDir"
+        Write-Step -Type "wait" -Message "Falling back to default directory: $defaultBaseDir"
+        $activeBaseDir = $defaultBaseDir
+    }
+} else {
+    $alternativeBaseDir = $null
+}
+
+if (-not (Test-Path $activeBaseDir)) {
+    New-Item -ItemType Directory -Path $activeBaseDir -Force | Out-Null
 }
 
 $ytDlpArgs = @()
@@ -153,44 +290,82 @@ $ytDlpArgs += @("--no-overwrites", "--no-post-overwrites")
 # yt-dlp will automatically create the uploader directory if it doesn't exist
 $targetFolder = "%(uploader)s"
 if ($ChooseDir) {
-    $downloadsDir = Join-Path -Path $PSScriptRoot -ChildPath "downloads"
-    if (-not (Test-Path $downloadsDir)) { New-Item -ItemType Directory -Path $downloadsDir -Force | Out-Null }
-    
     if ($TargetDirName) {
         $targetFolder = $TargetDirName
-        $newDir = Join-Path $downloadsDir $TargetDirName
+        $newDir = Join-Path -Path $activeBaseDir -ChildPath $TargetDirName
         if (-not (Test-Path $newDir)) { New-Item -ItemType Directory -Path $newDir -Force | Out-Null }
     } else {
-        $subdirs = Get-ChildItem -Path $downloadsDir -Directory | Select-Object -ExpandProperty Name
+        $subdirs = Get-ChildItem -Path $activeBaseDir -Directory -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Name
         
-        if ($subdirs.Count -gt 0) {
-            $options = @()
+        $options = @()
+        if ($subdirs) {
             $options += $subdirs
-            $options += "[Create New Folder...]"
-            $options += "[Default: %(uploader)s]"
-            
-            $selection = Show-Menu -Title "Select Download Folder:" -Options $options
-            
-            if ($selection -eq "[Create New Folder...]") {
-                Write-Host "`n > Enter new folder name: " -ForegroundColor Yellow -NoNewline
-                $newFolder = Read-Host
-                if ([string]::IsNullOrWhiteSpace($newFolder)) {
-                    $targetFolder = "%(uploader)s"
-                } else {
-                    $targetFolder = $newFolder.Trim()
-                }
-            } elseif ($selection -ne "[Default: %(uploader)s]") {
-                $targetFolder = $selection
+        }
+        $options += "[Create New Folder...]"
+        $options += "[Default: %(uploader)s]"
+        
+        $selection = Show-Menu -Title "Select Download Folder ($activeBaseDir):" -Options $options
+        
+        if ($selection -eq "[Create New Folder...]") {
+            Write-Host "`n > Enter new folder name: " -ForegroundColor Yellow -NoNewline
+            $newFolder = Read-Host
+            if ([string]::IsNullOrWhiteSpace($newFolder)) {
+                $targetFolder = "%(uploader)s"
+            } else {
+                $targetFolder = $newFolder.Trim()
+                $newDir = Join-Path -Path $activeBaseDir -ChildPath $targetFolder
+                if (-not (Test-Path $newDir)) { New-Item -ItemType Directory -Path $newDir -Force | Out-Null }
             }
+        } elseif ($selection -ne "[Default: %(uploader)s]") {
+            $targetFolder = $selection
         }
     }
 }
-$ytDlpArgs += @("-o", "downloads/$targetFolder/%(title)s.%(ext)s")
+$ytDlpArgs += @("-o", "$activeBaseDir/$targetFolder/%(title)s.%(ext)s")
+
+# Global Archive Tracking
+$globalArchive = Get-YtjGlobalArchivePath
+$ytDlpArgs += @("--download-archive", $globalArchive)
+
+# Cross-Path Duplicate Detection
+$videoId = $null
+if ($Url -match '(?:v=|youtu\.be\/|shorts\/|embed\/)([a-zA-Z0-9_-]{11})') {
+    $videoId = $matches[1]
+}
+
+if ($videoId) {
+    $foundInAlt = $null
+    if ($alternativeBaseDir -and (Test-Path $alternativeBaseDir)) {
+        $altMatch = Get-ChildItem -Path $alternativeBaseDir -Recurse -Filter "*$videoId*" -File -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($altMatch) {
+            $foundInAlt = $altMatch.FullName
+        }
+    }
+    
+    $foundInActive = $null
+    if (Test-Path $activeBaseDir) {
+        $activeMatch = Get-ChildItem -Path $activeBaseDir -Recurse -Filter "*$videoId*" -File -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($activeMatch) {
+            $foundInActive = $activeMatch.FullName
+        }
+    }
+
+    if ($foundInAlt) {
+        $noticeLines = @(
+            "Video ID: [$videoId]",
+            "Status:   Already exists in your alternative library!",
+            "Location: $foundInAlt",
+            "Target:   $activeBaseDir"
+        )
+        Write-Panel -Title "Notice: Cross-Path Duplicate Detected" -Lines $noticeLines -Color Yellow
+    } elseif ($foundInActive) {
+        Write-Step -Type "info" -Message "Video already present in active library: $foundInActive"
+    }
+}
 
 if ($Sync) {
     # Syncing implies downloading a playlist/channel
     $Playlist = $true
-    $ytDlpArgs += @("--download-archive", "ytj_archive.txt")
 }
 
 if (-not $Playlist) {
@@ -246,15 +421,17 @@ if ($Thumb) { $extrasStr += "Thumbnail" }
 if ($Playlist) { $extrasStr += "Playlist/Sync" }
 
 $execLines = @(
-    "Target:  $Url",
-    "Mode:    $modeStr"
+    "Target:   $Url",
+    "Mode:     $modeStr",
+    "Save to:  $activeBaseDir/$targetFolder"
 )
 
-if ($DebugMode) { $execLines += "Logging: Debug" }
-elseif ($VerboseMode) { $execLines += "Logging: Verbose" }
+if ($DebugMode) { $execLines += "Logging:  Debug" }
+elseif ($VerboseMode) { $execLines += "Logging:  Verbose" }
 
 $optionsText = if ($extrasStr.Count -gt 0) { $extrasStr -join ", " } else { "None" }
-$execLines += "Options: $optionsText"
+$execLines += "Options:  $optionsText"
+$execLines += "Archive:  $globalArchive"
 
 Write-Panel -Title "Executing yt-dlp" -Lines $execLines -Color Magenta
 
